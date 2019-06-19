@@ -1,0 +1,1 @@
+Fixation data of each image can be downloaded from [link](http://cybertron.cg.tu-berlin.de/xiwang/mental_imagery/dataset/imgData.zip), which contains fixation sequences from both encoding and recall conditions.
