@@ -17,7 +17,7 @@ def get_signature_from_fixation_descriptor(fixs, is_duration_weighted=True):
     """ Get signature from fixation descriptor
         :param fixs: row-wise fixation descriptor, each row x, y, duration, starting timestamp
         :param is_duration_weighted: use duration as point weight
-        :return:
+        :return: the signature vector represents the eye movement distribution 
     """
     if np.isnan(np.sum(fixs)):
         print("ERROR!")
@@ -47,6 +47,12 @@ def reweight_signature(s, weight):
 
 
 def find_desired_ptr(src, dst, neighbor_weight):
+    """ compute the best matching encoding fixation (dst) for each recall fixation (src)
+        :param src: recall fixations
+        :param dst: encoding fixations
+        :param neighbor_weight: weight decay
+        :return: signature with new weights
+    """
     n = len(dst)
 
     w = float(neighbor_weight)  # comparatively small
@@ -79,6 +85,13 @@ def cal_weighted_center(arr, w):
 
 
 def estimate_weighted_rigid_transformation(ridx, ptr, desired_ptr, rigid_weight):
+    """ estimate local tranformation matrix for a recall fixation 
+        :param ridx: index of recall fixation  
+        :param ptr: recall fixations 
+        :param desired_ptr: closest points in encoding sequence 
+        :param rigid_weight: weight parameter controlling the amount of rigid transformation 
+        :return: relocated recall fixaions and the tranformation
+    """
     n = ptr.shape[0]
     weights = np.zeros(n)
     p = ptr[ridx, :]
@@ -92,11 +105,13 @@ def estimate_weighted_rigid_transformation(ridx, ptr, desired_ptr, rigid_weight)
         # print d2
         weights[i] = np.exp(d2 * iw2)
 
+    # compute weighted concensus location given the desired point location 
     centroid_s = cal_weighted_center(ptr, weights)
     centroid_d = cal_weighted_center(desired_ptr, weights)
     ss = ptr - centroid_s
     dd = desired_ptr - centroid_d
 
+    # compute local rigid transformation 
     tweights = np.tile(weights, (2, 1))
     tmp = np.multiply(tweights.T, dd)
     H = np.dot(ss.T, tmp)
@@ -118,7 +133,12 @@ def estimate_weighted_rigid_transformation(ridx, ptr, desired_ptr, rigid_weight)
 
 def asap_with_rigid(recall, view, neighbor_weight=100, rigid_weight=250,
                     max_iteration=50, recall_weight=1.0, to_plot=False):
-
+    """ iteratively compute the elastic matching function
+        :param recall: recall fixations 
+        :param view: encoding fixations 
+        :param others: default parameter values 
+        :return: relocated recall fixaions 
+    """
     recall = reweight_signature(recall.copy(), recall_weight)
     orig_recall_pts = recall[:, [1, 2]].copy()
     orig_view_pts = view[:, [1, 2]].copy()
@@ -135,13 +155,16 @@ def asap_with_rigid(recall, view, neighbor_weight=100, rigid_weight=250,
 
     for i in range(max_iteration):
         old_ptr = (ptr[:2, :].T).copy()
+        # find corresponding fixation point
         desired_ptr = find_desired_ptr(ptr[:2, :].T, ptp[:2, :].T, neighbor_weight)
 
+        # compute local tranformation for each recall fixation 
         for ridx in range(nr):
             pt_new, T = estimate_weighted_rigid_transformation(ridx, orig_recall_pts, desired_ptr, rigid_weight)
             t0[ridx] = T
             ptr[0:2, ridx] = pt_new
-
+        
+        # compute total relocation cost 
         dis = np.linalg.norm(old_ptr - ptr[:2, :].T)
 
     if to_plot:
@@ -162,6 +185,10 @@ def asap_with_rigid(recall, view, neighbor_weight=100, rigid_weight=250,
 
 
 def mapRecallToView(sIdx):
+    """ map recall fixations to encoding fixations 
+        :param sIdx: image index 
+        :return: relocated recall fixaions 
+    """
     view_fixs = viewFixs[sIdx]
     recall_fixs = recallFixs[sIdx]
     view_sig = get_signature_from_fixation_descriptor(view_fixs[:, [3, 4, 2, 0]])
@@ -199,25 +226,26 @@ def main():
     for imgIdx in range(ds.numImgs):
 
         print(imgIdx)
+        # load image and align it to the coordinate sysmtem used by eye movements
         img = ds.loadImage(imgIdx)
         offset = ds.calImgDisplayOffset(img.shape)
 
+        # load fixations data
         global viewFixs, recallFixs
         viewFixs = np.load(os.path.join(ds.imgDataPath, "%d_viewFixs.npy" % imgIdx))
         recallFixs = np.load(os.path.join(ds.imgDataPath, "%d_recallFixs.npy" % imgIdx))
 
-        # parallel mapping for each pair of arrays
+        # mapping fixations during recall to fixations during encoding
         res = Parallel(n_jobs=8)(delayed(mapRecallToView)(sIdx)
                                  for sIdx in range(ds.numSubjects))
         global mappedFixs
         mappedFixs = res
 
-        # # save results
+        # # write out results
         # mappedResPath = os.path.join(ds.mappedRecallFixsPath, '%d_mappedRecallFixs.npy'%imgIdx)
         # np.save(mappedResPath, res)
 
-        # filter
-        # filterFixs = find_neighbors_within_radius(0)
+        # filtering encoding fixations based on relocated recall fixations
         filterRes = Parallel(n_jobs=8)(delayed(find_neighbors_within_radius)(sIdx)
                                  for sIdx in range(ds.numSubjects))
         filterRes = np.asarray(filterRes)
@@ -226,10 +254,11 @@ def main():
         filterFixs = np.vstack(filterFixs).reshape(-1, 6)
         remFixs = np.vstack(remFixs).reshape(-1, 6)
 
-        # # save results
+        # # write out results
         # filteredResPath = os.path.join(ds.filteredViewFixsPath, '%d_filteredViewFixs.npy'%imgIdx)
         # np.save(filteredResPath, filterFixs)
 
+        # visualise mapped results 
         viewFixs = np.vstack(viewFixs).reshape(-1, 6)
         recallFixs = np.vstack(recallFixs).reshape(-1, 6)
 
