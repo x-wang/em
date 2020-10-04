@@ -25,3 +25,10 @@ em
 cd src/scripts/
 python em.py
 ```
+
+The recommended parameter settings are included in the source file ```em.py``` as well. Note that these parameters might depend on some experimental parameters, and should be adapted correspondingly. 
+
+### Main function calls
+
+- ```mapRecallToView``` in ```em.py``` computes the elastic mapping function given a set of recall fixations and the corresponding encoding fixations. 
+- ```find_neighbors_within_radius``` in ```em.py``` filters encoding fixations based on recolated recall fixations. 
